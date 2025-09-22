@@ -47,7 +47,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     );
     let package_name = format!("{package_base_name}.deb");
     common::print_bundling(&package_name)?;
-    let base_dir = settings.project_out_directory().join("bundle/deb");
+    let base_dir = settings.get_target_dir().join("bundle/deb");
     let package_dir = base_dir.join(&package_base_name);
     if package_dir.exists() {
         std::fs::remove_dir_all(&package_dir)
@@ -58,8 +58,13 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     // Generate data files.
     let data_dir = package_dir.join("data");
     let binary_dest = data_dir.join("usr/bin").join(settings.binary_name());
-    common::copy_file(settings.binary_path(), &binary_dest)
-        .with_context(|| "Failed to copy binary file")?;
+    common::copy_file(
+        settings
+            .binary_path(crate::bundle::PackageType::Deb)
+            .as_path(),
+        &binary_dest,
+    )
+    .with_context(|| "Failed to copy binary file")?;
     transfer_resource_files(settings, &data_dir)
         .with_context(|| "Failed to copy resource files")?;
     generate_icon_files(settings, &data_dir).with_context(|| "Failed to create icon files")?;
@@ -100,10 +105,11 @@ fn generate_control_file(
     // https://www.debian.org/doc/debian-policy/ch-controlfields.html
     let dest_path = control_dir.join("control");
     let mut file = common::create_file(&dest_path)?;
+    let bundle_name = settings.bundle_name();
     writeln!(
         &mut file,
         "Package: {}",
-        str::replace(settings.bundle_name(), " ", "-").to_ascii_lowercase()
+        str::replace(bundle_name.as_str(), " ", "-").to_ascii_lowercase()
     )?;
     writeln!(&mut file, "Version: {}", settings.version_string())?;
     writeln!(&mut file, "Architecture: {arch}")?;

@@ -24,7 +24,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     let app_bundle_name = format!("{}.app", settings.bundle_name());
     common::print_bundling(&app_bundle_name)?;
     let bundle_dir = settings
-        .project_out_directory()
+        .get_target_dir()
         .join("bundle/ios")
         .join(&app_bundle_name);
     if bundle_dir.exists() {
@@ -46,8 +46,18 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     generate_info_plist(&bundle_dir, settings, &icon_filenames)
         .with_context(|| "Failed to create Info.plist")?;
     let bin_path = bundle_dir.join(settings.binary_name());
-    common::copy_file(settings.binary_path(), &bin_path)
-        .with_context(|| format!("Failed to copy binary from {:?}", settings.binary_path()))?;
+    common::copy_file(
+        settings
+            .binary_path(crate::bundle::PackageType::IosBundle)
+            .as_path(),
+        &bin_path,
+    )
+    .with_context(|| {
+        format!(
+            "Failed to copy binary from {:?}",
+            settings.binary_path(crate::bundle::PackageType::IosBundle)
+        )
+    })?;
     Ok(vec![bundle_dir])
 }
 

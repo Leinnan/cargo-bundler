@@ -30,6 +30,7 @@ const UUID_NAMESPACE: [u8; 16] = [
 ];
 
 // Info about a resource file (including the main executable) in the bundle.
+#[derive(Debug, Clone)]
 struct ResourceInfo {
     // The path to the existing file that will be bundled as a resource.
     source_path: PathBuf,
@@ -44,6 +45,7 @@ struct ResourceInfo {
 }
 
 // Info about a directory that needs to be created during installation.
+#[derive(Debug, Clone)]
 struct DirectoryInfo {
     // The database key for this directory.
     key: String,
@@ -56,6 +58,7 @@ struct DirectoryInfo {
 }
 
 // Info about a CAB archive within the installer package.
+#[derive(Debug, Clone)]
 struct CabinetInfo {
     // The stream name for this cabinet.
     name: String,
@@ -68,7 +71,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
 
     let msi_name = format!("{}.msi", settings.bundle_name());
     common::print_bundling(&msi_name)?;
-    let base_dir = settings.project_out_directory().join("bundle/msi");
+    let base_dir = settings.get_target_dir().join("bundle/msi");
     let msi_path = base_dir.join(&msi_name);
     let mut package =
         new_empty_package(&msi_path).with_context(|| "Failed to initialize MSI package")?;
@@ -240,11 +243,13 @@ fn create_property_table(
 // the resource files that should be included in the package.
 fn collect_resource_info(settings: &Settings) -> crate::Result<Vec<ResourceInfo>> {
     let mut resources = Vec::<ResourceInfo>::new();
+    let source_path = settings.binary_path(crate::bundle::PackageType::WindowsMsi);
+    let metadata = source_path.metadata()?;
     resources.push(ResourceInfo {
-        source_path: settings.binary_path().to_path_buf(),
+        source_path: source_path.clone(),
         dest_path: PathBuf::from(settings.binary_name()),
         filename: settings.binary_name().to_string(),
-        size: settings.binary_path().metadata()?.len(),
+        size: metadata.len(),
         component_key: String::new(),
     });
     let root_rsrc_dir = PathBuf::from("Resources");
@@ -472,6 +477,44 @@ fn create_feature_table(package: &mut Package, settings: &Settings) -> crate::Re
     Ok(())
 }
 
+fn make_identifier(dir_key: &str, filename: &str) -> String {
+    // Combine something stable
+    let mut s = if dir_key.is_empty() {
+        filename.to_string()
+    } else {
+        format!("{}_{}", dir_key, filename)
+    };
+
+    // Replace invalid chars with '_'
+    s = s
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    // Ensure first char is a letter or '_'
+    if !s
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_alphabetic() || c == '_')
+        .unwrap_or(false)
+    {
+        s.insert(0, '_');
+    }
+
+    // MSI Identifier limit
+    if s.len() > 72 {
+        s.truncate(72);
+    }
+
+    s
+}
+
 // Creates and populates the `Component` database table for the package.  One
 // component is created for each subdirectory under in the install dir.
 fn create_component_table(
@@ -501,16 +544,17 @@ fn create_component_table(
     )?;
     let mut rows = Vec::new();
     for directory in directories.iter() {
-        if !directory.files.is_empty() {
+        if let Some(first) = directory.files.first() {
             let hash_input = directory.files.join("/");
             let uuid = Uuid::new_v5(&package_guid, hash_input.as_bytes());
+            let keypath_id = make_identifier(&directory.key, first);
             rows.push(vec![
                 msi::Value::Str(directory.key.clone()),
                 msi::Value::from(uuid),
                 msi::Value::Str(directory.key.clone()),
                 msi::Value::Int(0),
                 msi::Value::Null,
-                msi::Value::Str(directory.files[0].clone()),
+                msi::Value::Str(keypath_id),
             ]);
         }
     }
@@ -624,10 +668,14 @@ fn create_file_table(package: &mut Package, cabinets: &[CabinetInfo]) -> crate::
     )?;
     let mut rows = Vec::new();
     let mut sequence: i32 = 1;
+    // dbg!(&cabinets);
+    // eprintln!("SS: {}", cabinets.len());
     for cabinet in cabinets.iter() {
+        // eprintln!("Len: {} of {}", cabinet.resources.len(), &cabinet.name);
         for resource in cabinet.resources.iter() {
+            let file_id = make_identifier(&cabinet.name, &resource.filename);
             rows.push(vec![
-                msi::Value::Str(resource.filename.clone()),
+                msi::Value::Str(file_id),
                 msi::Value::Str(resource.component_key.clone()),
                 msi::Value::Str(resource.filename.clone()),
                 msi::Value::Int(resource.size as i32),

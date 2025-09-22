@@ -4,7 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::{
     fs::File,
     io::{BufReader, BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -22,7 +22,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     let package_name = format!("{package_base_name}.AppImage");
     common::print_bundling(&package_name)?;
 
-    let base_dir = settings.project_out_directory().join("bundle/appimage");
+    let base_dir = settings.get_target_dir().join("bundle/appimage");
     let package_dir = base_dir.join(&package_base_name);
     if package_dir.exists() {
         std::fs::remove_dir_all(&package_dir)
@@ -33,7 +33,14 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     let app_dir = package_dir.join("AppDir");
     let binary_dest_rel = PathBuf::from("usr/bin").join(settings.binary_name());
     let binary_dest_abs = app_dir.join(binary_dest_rel.clone());
-    common::copy_file(settings.binary_path(), &binary_dest_abs)?;
+    common::copy_file(
+        settings
+            .binary_path(crate::bundle::PackageType::AppImage)
+            .as_path(),
+        &binary_dest_abs,
+    )?;
+    transfer_resource_files(settings, &app_dir)
+        .with_context(|| "Failed to copy resource files")?;
     generate_icon_files(settings, &app_dir)?;
     generate_desktop_file(settings, &app_dir)?;
 
@@ -81,4 +88,17 @@ fn fetch_runtime(arch: &str) -> crate::Result<Vec<u8>> {
         .with_context(|| "Failed to ready bytes")?;
 
     Ok(response.to_vec())
+}
+
+/// Copy the bundle's resource files into an appropriate directory under the
+/// `data_dir`.
+fn transfer_resource_files(settings: &Settings, data_dir: &Path) -> crate::Result<()> {
+    let resource_dir = data_dir.join("usr/lib").join(settings.binary_name());
+    for src in settings.resource_files() {
+        let src = src?;
+        let dest = resource_dir.join(common::resource_relpath(&src));
+        common::copy_file(&src, &dest)
+            .with_context(|| format!("Failed to copy resource file {src:?}"))?;
+    }
+    Ok(())
 }

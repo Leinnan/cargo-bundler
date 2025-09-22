@@ -1,7 +1,10 @@
 use super::settings::Settings;
 use quick_xml::se::Serializer;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+};
 
 // A v4 UUID that was generated specifically for cargo-bundle, to be used as a
 // namespace for generating v5 UUIDs from bundle identifier strings.
@@ -12,8 +15,8 @@ const UUID_NAMESPACE: uuid::Uuid = uuid::Uuid::from_bytes([
 pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     crate::bundle::common::print_warning("MSI bundle support is still experimental.")?;
 
-    let base_dir = settings.project_out_directory();
-    std::fs::create_dir_all(base_dir)?;
+    let base_dir = settings.get_target_dir().to_path_buf();
+    std::fs::create_dir_all(&base_dir)?;
 
     // Generate .wixproj file
     let wixproj_path = base_dir.join("installer.wixproj");
@@ -29,19 +32,24 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
         "release" => "Release",
         _ => "Debug",
     };
-    let output = std::process::Command::new("dotnet")
+    eprintln!("{} -> {}", wixproj_path.display(), base_dir.display());
+    let cmd = std::process::Command::new("dotnet")
         .args(["build", wixproj_path.to_str().unwrap(), "-c", configuration])
-        .current_dir(base_dir)
-        .output()?;
+        .current_dir(&settings.target.get_project_dir())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let output = cmd.wait_with_output()?;
 
     if !output.status.success() {
         return Err(anyhow::anyhow!(
             "Failed to build MSI: {}",
-            String::from_utf8_lossy(&output.stderr)
+            String::from_utf8_lossy(&output.stderr) + String::from_utf8_lossy(&output.stdout)
         ));
     }
+    let bundle_name = settings.bundle_name();
 
-    let output_name = sanitize_identifier(settings.bundle_name(), '-', true);
+    let output_name = sanitize_identifier(bundle_name.as_str(), '-', true);
     let msi_path = base_dir
         .join("bin")
         .join(configuration)
@@ -50,7 +58,8 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
 }
 
 fn generate_wixproj_file(settings: &Settings) -> String {
-    let output_name = sanitize_identifier(settings.bundle_name(), '-', true);
+    let bundle_name = settings.bundle_name();
+    let output_name = sanitize_identifier(bundle_name.as_str(), '-', true);
 
     let wix_project = WixProject {
         sdk: "WixToolset.Sdk/6.0.2".to_string(),
@@ -68,7 +77,6 @@ fn generate_wixproj_file(settings: &Settings) -> String {
     let mut serializer = Serializer::new(&mut buffer);
     serializer.indent(' ', 2);
     wix_project.serialize(serializer).unwrap();
-
     buffer
 }
 
@@ -80,12 +88,13 @@ fn generate_wxs_file(wxs_path: &Path, settings: &Settings) -> crate::Result<()> 
     let upgrade_code = uuid::Uuid::new_v5(&UUID_NAMESPACE, name.as_bytes())
         .to_string()
         .to_uppercase();
+    let binary_name = settings.binary_name();
 
     // Generate dynamic executable ID from binary name
-    let exe_id = sanitize_identifier(settings.binary_name(), '_', false);
+    let exe_id = sanitize_identifier(binary_name.as_str(), '_', false);
 
     // Generate license RTF file
-    let license_rtf_path = settings.project_out_directory().join("License.rtf");
+    let license_rtf_path = settings.target.get_project_dir().join("License.rtf");
     generate_license_rtf(&license_rtf_path, settings)?;
 
     // Build components from binary and resources
@@ -93,7 +102,10 @@ fn generate_wxs_file(wxs_path: &Path, settings: &Settings) -> crate::Result<()> 
     let mut component_refs = Vec::new();
 
     // Main executable component
-    if let Some(binary_path) = settings.binary_path().to_str() {
+    if let Some(binary_path) = settings
+        .binary_path(crate::bundle::PackageType::WxsMsi)
+        .to_str()
+    {
         let comp = Component {
             id: Some("MainExecutableComponent".to_string()),
             guid: Some("*".to_string()),
@@ -112,10 +124,7 @@ fn generate_wxs_file(wxs_path: &Path, settings: &Settings) -> crate::Result<()> 
         });
     }
 
-    let bin_dir = settings
-        .binary_path()
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let bin_dir = settings.get_target_dir().to_path_buf();
 
     // Search for DLL files from binary_path and add them as components
     let dll_components: Vec<Component> = std::fs::read_dir(bin_dir)
@@ -149,10 +158,7 @@ fn generate_wxs_file(wxs_path: &Path, settings: &Settings) -> crate::Result<()> 
 
     installfolder_components.extend(dll_components.clone());
 
-    let package_dir = settings
-        .manifest_path()
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let package_dir = settings.target.get_project_dir();
 
     // Build directory structure from resource files
     let mut root_directories = Vec::new();
@@ -179,14 +185,21 @@ fn generate_wxs_file(wxs_path: &Path, settings: &Settings) -> crate::Result<()> 
         build_directory_structure(&mut root_directories, &relative_path, comp);
     }
 
-    let package_id = format!(
-        "{}_{}",
-        settings
-            .authors_comma_separated()
-            .unwrap_or_default()
-            .to_lowercase(),
-        settings.bundle_name()
-    );
+    let package_id = {
+        let propose = format!(
+            "{}_{}",
+            settings
+                .authors_comma_separated()
+                .unwrap_or_default()
+                .to_lowercase(),
+            settings.bundle_name()
+        );
+        if propose.len() >= 72 {
+            settings.bundle_name().to_string()
+        } else {
+            propose
+        }
+    };
     let package_id = sanitize_identifier(&package_id, '_', false);
 
     let main_icon_id = "main_ico_id";
@@ -771,10 +784,7 @@ fn find_default_license() -> Option<String> {
 }
 
 fn get_icon_path(settings: &Settings) -> PathBuf {
-    let package_dir = settings
-        .manifest_path()
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let package_dir = settings.target.get_project_dir();
 
     // Try to get the first icon file from BundleSettings.icon
     if let Some(icon_result) = settings.icon_files().next()
@@ -795,7 +805,7 @@ fn get_icon_path(settings: &Settings) -> PathBuf {
                 return full_path;
             }
 
-            let out_dir = settings.project_out_directory();
+            let out_dir = settings.get_target_dir();
 
             let file_stem = full_path
                 .file_stem()
@@ -811,7 +821,9 @@ fn get_icon_path(settings: &Settings) -> PathBuf {
 
     // Fallback: use the executable file itself as the icon source
     // EXE files can be used directly as icon sources in WiX
-    settings.binary_path().to_path_buf()
+    settings
+        .binary_path(super::PackageType::WxsMsi)
+        .to_path_buf()
 }
 
 // Try to convert other formats to ICO

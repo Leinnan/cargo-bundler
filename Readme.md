@@ -1,22 +1,22 @@
-# Cargo bundle
+# Cargo bundler
 
 [![Crates.io](https://img.shields.io/crates/v/cargo-bundle.svg)](https://crates.io/crates/cargo-bundle)
-[![Build Status](https://github.com/burtonageo/cargo-bundle/workflows/CI/badge.svg?branch=master)](https://github.com/burtonageo/cargo-bundle/actions?query=branch%3Amaster)
+[![Build Status](https://github.com/Leinnan/cargo-bundler/workflows/CI/badge.svg?branch=master)](https://github.com/burtonageo/cargo-bundle/actions?query=branch%3Amaster)
 
 Wrap Rust executables in OS-specific app bundles
 
 ## About
 
-`cargo-bundle` is a tool used to generate installers or app bundles for GUI
+`cargo-bundler` is a tool used to generate installers or app bundles for GUI
 executables built with `cargo`.  It can create `.app` bundles for Mac OS X and
 iOS, `.deb` packages for Linux, and `.msi` installers for Windows (note however
 that iOS and Windows support is still experimental).  Support for creating
 `.rpm` packages (for Linux) and `.apk` packages (for Android) is still pending.
 
-To install `cargo bundle`, run `cargo install cargo-bundle`. This will add the most recent version of `cargo-bundle`
+To install `cargo bundler`, run `cargo install cargo-bundler`. This will add the most recent version of `cargo-bundler`
 published to [crates.io](https://crates.io/crates/cargo-bundle) as a subcommand to your default `cargo` installation.
 
-To start using `cargo bundle`, add a `[package.metadata.bundle]` section to your project's `Cargo.toml` file.  This
+To start using `cargo bundler`, add a `[package.metadata.bundle]` section to your project's `Cargo.toml` file.  This
 section describes various attributes of the generated bundle, such as its name, icon, description, copyright, as well
 as any packaging scripts you need to generate extra data.  The full manifest format is described below.
 

@@ -1,10 +1,12 @@
 mod bundle;
 
+use crate::bundle::target_info::BundleTargetInfo;
 use crate::bundle::{BuildArtifact, PackageType, Settings, bundle_project};
 use anyhow::Result;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use std::env;
 use std::ffi::OsString;
+use std::path::PathBuf;
 use std::process;
 
 #[macro_export]
@@ -31,7 +33,7 @@ fn about_info() -> String {
 }
 
 #[derive(clap::Parser, Clone)]
-#[command(version = version_0!(), author = clap::crate_authors!(", "), bin_name = "cargo bundle", about = about_info())]
+#[command(version = version_0!(), author = clap::crate_authors!(", "), bin_name = "cargo bundler", about = about_info())]
 pub struct Cli {
     /// Bundle the specified binary
     #[arg(short, long, value_name = "NAME")]
@@ -72,6 +74,8 @@ pub struct Cli {
     /// The name of the package to bundle. If not specified, the root package will be used.
     #[arg(short, long, value_name = "SPEC")]
     pub package: Option<String>,
+
+    pub dir: PathBuf,
 }
 
 /// Runs `cargo build` to make sure the binary file is up-to-date.
@@ -129,17 +133,13 @@ fn run() -> crate::Result<()> {
     if args.len() > 1 && args[1] == "bundle" {
         args.remove(1);
     }
-    let cli = <Cli as clap::Parser>::parse_from(args); // <Cli as clap::Parser>::parse();
-
+    let mut cli = <Cli as clap::Parser>::parse_from(args); // <Cli as clap::Parser>::parse();
+    cli.dir = env::current_dir()?;
+    let target_build_info: BundleTargetInfo = (&cli).try_into().expect("msg");
     {
-        let output_paths = env::current_dir()
-            .map_err(From::from)
-            .and_then(|d| Settings::new(d, &cli))
-            .and_then(|s| {
-                build_project_if_unbuilt(&s)?;
-                Ok(s)
-            })
-            .and_then(bundle_project)?;
+        let settings = Settings::new(&target_build_info, &cli)?;
+        build_project_if_unbuilt(&settings)?;
+        let output_paths = bundle_project(settings, target_build_info.package_types)?;
         bundle::print_finished(&output_paths)?;
     }
     Ok(())

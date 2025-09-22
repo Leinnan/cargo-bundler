@@ -188,23 +188,20 @@ pub fn generate_icon_files(settings: &Settings, data_dir: &Path) -> crate::Resul
     let base_dir = data_dir.join("usr/share/icons/hicolor");
 
     let mut sizes: BTreeSet<(u32, u32, bool)> = BTreeSet::new();
+    let binary_name = settings.binary_name();
 
     for icon_path in settings.icon_files() {
         let icon_path = icon_path?;
         if icon_path.extension() == Some(OsStr::new("png")) {
-            let new_sizes = generate_icon_files_png(
-                &icon_path,
-                &base_dir,
-                settings.binary_name(),
-                sizes.clone(),
-            )
-            .unwrap();
+            let new_sizes =
+                generate_icon_files_png(&icon_path, &base_dir, binary_name.as_str(), sizes.clone())
+                    .unwrap();
             sizes.append(&mut new_sizes.to_owned())
         } else {
             let new_sizes = generate_icon_files_non_png(
                 &icon_path,
                 &base_dir,
-                settings.binary_name(),
+                binary_name.as_str(),
                 sizes.clone(),
             )
             .unwrap();

@@ -34,7 +34,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     let app_bundle_name = format!("{}.app", settings.bundle_name());
     common::print_bundling(&app_bundle_name)?;
     let app_bundle_path = settings
-        .project_out_directory()
+        .get_target_dir()
         .join("bundle/osx")
         .join(&app_bundle_name);
     if app_bundle_path.exists() {
@@ -67,8 +67,12 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
             .with_context(|| format!("Failed to copy resource file {src:?}"))?;
     }
 
-    copy_binary_to_bundle(&bundle_directory, settings)
-        .with_context(|| format!("Failed to copy binary from {:?}", settings.binary_path()))?;
+    copy_binary_to_bundle(&bundle_directory, settings).with_context(|| {
+        format!(
+            "Failed to copy binary from {:?}",
+            settings.binary_path(crate::bundle::PackageType::OsxBundle)
+        )
+    })?;
 
     if copied > 0 {
         add_rpath(&bundle_directory, settings)?;
@@ -163,7 +167,9 @@ impl DylibInfo {
 fn copy_binary_to_bundle(bundle_directory: &Path, settings: &Settings) -> crate::Result<()> {
     let dest_dir = bundle_directory.join("MacOS");
     common::copy_file(
-        settings.binary_path(),
+        settings
+            .binary_path(super::PackageType::OsxBundle)
+            .as_path(),
         &dest_dir.join(settings.binary_name()),
     )
 }
