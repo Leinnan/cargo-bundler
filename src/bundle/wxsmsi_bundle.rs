@@ -1,4 +1,5 @@
 use super::settings::Settings;
+use anyhow::Context;
 use quick_xml::se::Serializer;
 use serde::Serialize;
 use std::{
@@ -18,6 +19,11 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     let base_dir = settings.get_target_dir().to_path_buf();
     std::fs::create_dir_all(&base_dir)?;
 
+    let package_dir = base_dir.join("bundle/wsxmsi");
+    if package_dir.exists() {
+        std::fs::remove_dir_all(&package_dir)
+            .with_context(|| format!("Failed to remove old bundle"))?;
+    }
     // Generate .wixproj file
     let wixproj_path = base_dir.join("installer.wixproj");
     std::fs::write(&wixproj_path, generate_wixproj_file(settings))?;
@@ -54,7 +60,9 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
         .join("bin")
         .join(configuration)
         .join(format!("{output_name}.msi"));
-    Ok(vec![msi_path])
+    std::fs::copy(&msi_path, package_dir.join(format!("{output_name}.msi")))?;
+    std::fs::remove_file(msi_path)?;
+    Ok(vec![package_dir.join(format!("{output_name}.msi"))])
 }
 
 fn generate_wixproj_file(settings: &Settings) -> String {

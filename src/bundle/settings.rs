@@ -18,6 +18,20 @@ pub enum PackageType {
     AppImage,
 }
 
+impl PackageType {
+    pub fn bundle_project(&self, settings: &Settings) -> crate::Result<Vec<PathBuf>> {
+        match self {
+            PackageType::OsxBundle => super::osx_bundle::bundle_project(&settings),
+            PackageType::IosBundle => super::ios_bundle::bundle_project(&settings),
+            PackageType::WindowsMsi => super::msi_bundle::bundle_project(&settings),
+            PackageType::WxsMsi => super::wxsmsi_bundle::bundle_project(&settings),
+            PackageType::Deb => super::linux::deb_bundle::bundle_project(&settings),
+            PackageType::Rpm => super::linux::rpm_bundle::bundle_project(&settings),
+            PackageType::AppImage => super::linux::appimage_bundle::bundle_project(&settings),
+        }
+    }
+}
+
 impl std::str::FromStr for PackageType {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {

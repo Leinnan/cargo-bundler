@@ -9,9 +9,7 @@ pub mod target_info;
 mod wxsmsi_bundle;
 
 pub use self::common::{print_error, print_finished};
-use self::linux::appimage_bundle;
 pub use self::settings::{BuildArtifact, PackageType, Settings};
-use crate::bundle::linux::{deb_bundle, rpm_bundle};
 use std::path::PathBuf;
 
 pub fn bundle_project(
@@ -20,15 +18,8 @@ pub fn bundle_project(
 ) -> crate::Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     for package_type in package_types {
-        paths.append(&mut match package_type {
-            PackageType::OsxBundle => osx_bundle::bundle_project(&settings)?,
-            PackageType::IosBundle => ios_bundle::bundle_project(&settings)?,
-            PackageType::WindowsMsi => msi_bundle::bundle_project(&settings)?,
-            PackageType::WxsMsi => wxsmsi_bundle::bundle_project(&settings)?,
-            PackageType::Deb => deb_bundle::bundle_project(&settings)?,
-            PackageType::Rpm => rpm_bundle::bundle_project(&settings)?,
-            PackageType::AppImage => appimage_bundle::bundle_project(&settings)?,
-        });
+        let mut results = package_type.bundle_project(&settings)?;
+        paths.append(&mut results);
     }
     Ok(paths)
 }
