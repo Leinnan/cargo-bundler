@@ -34,11 +34,9 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     fs::create_dir_all(&bundle_dir)
         .with_context(|| format!("Failed to create bundle directory at {bundle_dir:?}"))?;
 
-    for src in settings.resource_files() {
-        let src = src?;
-        let dest = bundle_dir.join(common::resource_relpath(&src));
-        common::copy_file(&src, &dest)
-            .with_context(|| format!("Failed to copy resource file {src:?}"))?;
+    for (src, dst) in settings.resources_paths(bundle_dir.as_path()) {
+        common::copy_file(&src, &dst)
+            .with_context(|| format!("Failed to copy resource file {src:?} to {dst:?}"))?;
     }
 
     let icon_filenames =

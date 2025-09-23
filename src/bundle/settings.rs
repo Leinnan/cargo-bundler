@@ -1,11 +1,12 @@
+use crate::bundle::common;
+use crate::bundle::metadata::BundleSettings;
 use crate::bundle::target_info::BundleTargetInfo;
 
 use super::category::AppCategory;
 use super::common::print_warning;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt::Display;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PackageType {
@@ -105,33 +106,6 @@ pub enum BuildArtifact {
     Example(String),
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize)]
-pub struct BundleSettings {
-    // General settings:
-    name: Option<String>,
-    identifier: Option<String>,
-    icon: Option<Vec<String>>,
-    version: Option<String>,
-    resources: Option<Vec<String>>,
-    copyright: Option<String>,
-    category: Option<AppCategory>,
-    short_description: Option<String>,
-    long_description: Option<String>,
-    // OS-specific settings:
-    linux_mime_types: Option<Vec<String>>,
-    linux_exec_args: Option<String>,
-    linux_use_terminal: Option<bool>,
-    deb_depends: Option<Vec<String>>,
-    osx_frameworks: Option<Vec<String>>,
-    osx_plugins: Option<Vec<String>>,
-    osx_minimum_system_version: Option<String>,
-    osx_url_schemes: Option<Vec<String>>,
-    osx_info_plist_exts: Option<Vec<String>>,
-    // Bundles for other binaries/examples:
-    pub bin: Option<HashMap<String, BundleSettings>>,
-    pub example: Option<HashMap<String, BundleSettings>>,
-}
-
 #[derive(Clone, Debug)]
 pub struct Settings {
     pub target: BundleTargetInfo,
@@ -140,6 +114,7 @@ pub struct Settings {
     all_features: bool,
     no_default_features: bool,
     bundle_settings: BundleSettings,
+    bundle_name: String,
 }
 
 impl Settings {
@@ -158,8 +133,12 @@ impl Settings {
         let all_features = cli.all_features;
         let no_default_features = cli.no_default_features;
         let features = cli.features.as_ref().map(|features| features.into());
-        let bundle_settings = bundle_info.get_bundle_settings(&build_artifact).0;
-
+        let (bundle_settings, bundle_name) = bundle_info.get_bundle_settings(&build_artifact);
+        let bundle_name = if bundle_name.is_empty() {
+            bundle_info.package.name.to_string()
+        } else {
+            bundle_name
+        };
         Ok(Settings {
             target: bundle_info.clone(),
             features,
@@ -167,6 +146,7 @@ impl Settings {
             all_features,
             no_default_features,
             bundle_settings,
+            bundle_name,
         })
     }
 
@@ -182,10 +162,7 @@ impl Settings {
 
     /// Returns the file name of the binary being bundled.
     pub fn binary_name(&self) -> String {
-        self.target
-            .get_bundle_settings(&self.build_artifact)
-            .1
-            .clone()
+        self.bundle_name.clone()
     }
 
     /// Returns the path to the binary being bundled.
@@ -235,11 +212,7 @@ impl Settings {
     }
 
     pub fn bundle_name(&self) -> String {
-        self.target
-            .get_bundle_settings(&self.build_artifact)
-            .0
-            .name
-            .unwrap_or(self.target.package.name.to_string())
+        self.bundle_name.clone()
     }
 
     pub fn bundle_identifier(&self) -> Cow<'_, str> {
@@ -258,19 +231,42 @@ impl Settings {
 
     /// Returns an iterator over the icon files to be used for this bundle.
     pub fn icon_files(&self) -> ResourcePaths<'_> {
-        match self.bundle_settings.icon {
-            Some(ref paths) => ResourcePaths::new(paths.as_slice(), false),
-            None => ResourcePaths::new(&[], false),
-        }
+        ResourcePaths::new(self.bundle_settings.icon.as_slice(), false)
     }
 
-    /// Returns an iterator over the resource files to be included in this
-    /// bundle.
-    pub fn resource_files(&self) -> ResourcePaths<'_> {
-        match self.bundle_settings.resources {
-            Some(ref paths) => ResourcePaths::new(paths.as_slice(), true),
-            None => ResourcePaths::new(&[], true),
+    pub fn resources_paths(&self, output_base: &Path) -> Vec<(PathBuf, PathBuf)> {
+        let mut output = Vec::new();
+        for (base_src, dst) in &self.bundle_settings.resources_mapping {
+            // Parse the base pattern to find the base directory
+            let base_pattern = Path::new(base_src);
+            let base_dir = if base_src.contains('*') {
+                // For glob patterns like "build/static/*", get the parent directory
+                base_pattern.parent().unwrap_or(Path::new(""))
+            } else {
+                // For literal paths, use the path itself if it's a directory
+                base_pattern
+            };
+
+            for source_path in ResourcePaths::new(&[base_src.clone()], true) {
+                if let Ok(src) = source_path {
+                    // Calculate the relative path from the base directory to preserve subdirectory structure
+                    let relative_path = if let Ok(rel) = src.strip_prefix(base_dir) {
+                        rel
+                    } else {
+                        // Fallback to just the filename if strip_prefix fails
+                        Path::new(src.file_name().unwrap_or_default())
+                    };
+                    let destination = if dst.is_empty() {
+                        output_base.join(common::resource_relpath(&src))
+                    } else {
+                        output_base.join(dst).join(relative_path)
+                    };
+                    output.push((src, destination));
+                }
+            }
         }
+
+        output
     }
 
     pub fn version_string(&self) -> &dyn Display {
@@ -338,17 +334,11 @@ impl Settings {
     }
 
     pub fn debian_dependencies(&self) -> &[String] {
-        match self.bundle_settings.deb_depends {
-            Some(ref dependencies) => dependencies.as_slice(),
-            None => &[],
-        }
+        self.bundle_settings.deb_depends.as_slice()
     }
 
     pub fn linux_mime_types(&self) -> &[String] {
-        match self.bundle_settings.linux_mime_types {
-            Some(ref mime_types) => mime_types.as_slice(),
-            None => &[],
-        }
+        self.bundle_settings.linux_mime_types.as_slice()
     }
 
     pub fn linux_use_terminal(&self) -> Option<bool> {
@@ -360,10 +350,7 @@ impl Settings {
     }
 
     pub fn osx_frameworks(&self) -> &[String] {
-        match self.bundle_settings.osx_frameworks {
-            Some(ref frameworks) => frameworks.as_slice(),
-            None => &[],
-        }
+        self.bundle_settings.osx_frameworks.as_slice()
     }
 
     pub fn osx_plugins(&self) -> &[String] {
@@ -471,20 +458,20 @@ mod tests {
         let toml_str = "\
             name = \"Example Application\"\n\
             identifier = \"com.example.app\"\n\
-            resources = [\"data\", \"foo/bar\"]\n\
+            resources_mapping = [[\"data\", \"foo/bar\"]]\n\
             category = \"Puzzle Game\"\n\
             long_description = \"\"\"\n\
             This is an example of a\n\
             simple application.\n\
             \"\"\"\n";
         let bundle: BundleSettings = toml::from_str(toml_str).unwrap();
-        assert_eq!(bundle.name, Some("Example Application".to_string()));
+        assert_eq!(bundle.name, "Example Application".to_string());
         assert_eq!(bundle.identifier, Some("com.example.app".to_string()));
-        assert_eq!(bundle.icon, None);
+        assert_eq!(bundle.icon.len(), 0);
         assert_eq!(bundle.version, None);
         assert_eq!(
-            bundle.resources,
-            Some(vec!["data".to_string(), "foo/bar".to_string()])
+            bundle.resources_mapping,
+            vec![("data".to_string(), "foo/bar".to_string())]
         );
         assert_eq!(bundle.category, Some(AppCategory::PuzzleGame));
         assert_eq!(
@@ -509,19 +496,19 @@ mod tests {
             [example.baz]\n\
             name = \"Baz Example\"\n";
         let bundle: BundleSettings = toml::from_str(toml_str).unwrap();
-        assert!(bundle.example.is_some());
+        assert!(!bundle.example.is_empty());
 
-        let bins = bundle.bin.as_ref().unwrap();
+        let bins = bundle.bin;
         assert!(bins.contains_key("foo"));
         let foo: &BundleSettings = bins.get("foo").unwrap();
-        assert_eq!(foo.name, Some("Foo App".to_string()));
+        assert_eq!(foo.name, "Foo App".to_string());
         assert!(bins.contains_key("bar"));
         let bar: &BundleSettings = bins.get("bar").unwrap();
-        assert_eq!(bar.name, Some("Bar App".to_string()));
+        assert_eq!(bar.name, "Bar App".to_string());
 
-        let examples = bundle.example.as_ref().unwrap();
+        let examples = bundle.example;
         assert!(examples.contains_key("baz"));
         let baz: &BundleSettings = examples.get("baz").unwrap();
-        assert_eq!(baz.name, Some("Baz Example".to_string()));
+        assert_eq!(baz.name, "Baz Example".to_string());
     }
 }

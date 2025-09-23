@@ -4,11 +4,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::{
     fs::File,
     io::{BufReader, BufWriter, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Command,
 };
 
-use crate::bundle::{Settings, common};
+use crate::bundle::{Settings, common, linux::common::transfer_resource_files};
 
 use super::common::{generate_desktop_file, generate_icon_files};
 
@@ -39,8 +39,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
             .as_path(),
         &binary_dest_abs,
     )?;
-    transfer_resource_files(settings, &app_dir)
-        .with_context(|| "Failed to copy resource files")?;
+    transfer_resource_files(settings, &app_dir).with_context(|| "Failed to copy resource files")?;
     generate_icon_files(settings, &app_dir)?;
     generate_desktop_file(settings, &app_dir)?;
 
@@ -88,17 +87,4 @@ fn fetch_runtime(arch: &str) -> crate::Result<Vec<u8>> {
         .with_context(|| "Failed to ready bytes")?;
 
     Ok(response.to_vec())
-}
-
-/// Copy the bundle's resource files into an appropriate directory under the
-/// `data_dir`.
-fn transfer_resource_files(settings: &Settings, data_dir: &Path) -> crate::Result<()> {
-    let resource_dir = data_dir.join("usr/lib").join(settings.binary_name());
-    for src in settings.resource_files() {
-        let src = src?;
-        let dest = resource_dir.join(common::resource_relpath(&src));
-        common::copy_file(&src, &dest)
-            .with_context(|| format!("Failed to copy resource file {src:?}"))?;
-    }
-    Ok(())
 }

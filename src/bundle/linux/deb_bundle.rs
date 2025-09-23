@@ -65,7 +65,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
         &binary_dest,
     )
     .with_context(|| "Failed to copy binary file")?;
-    transfer_resource_files(settings, &data_dir)
+    crate::bundle::linux::common::transfer_resource_files(settings, &data_dir)
         .with_context(|| "Failed to copy resource files")?;
     generate_icon_files(settings, &data_dir).with_context(|| "Failed to create icon files")?;
     generate_desktop_file(settings, &data_dir).with_context(|| "Failed to create desktop file")?;
@@ -170,19 +170,6 @@ fn generate_md5sums(control_dir: &Path, data_dir: &Path) -> crate::Result<()> {
             io::Error::new(io::ErrorKind::InvalidData, msg)
         })?;
         writeln!(md5sums_file, "  {path_str}")?;
-    }
-    Ok(())
-}
-
-/// Copy the bundle's resource files into an appropriate directory under the
-/// `data_dir`.
-fn transfer_resource_files(settings: &Settings, data_dir: &Path) -> crate::Result<()> {
-    let resource_dir = data_dir.join("usr/lib").join(settings.binary_name());
-    for src in settings.resource_files() {
-        let src = src?;
-        let dest = resource_dir.join(common::resource_relpath(&src));
-        common::copy_file(&src, &dest)
-            .with_context(|| format!("Failed to copy resource file {src:?}"))?;
     }
     Ok(())
 }

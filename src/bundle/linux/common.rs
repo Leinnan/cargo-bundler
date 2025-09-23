@@ -1,4 +1,5 @@
 use crate::bundle::{Settings, common};
+use anyhow::Context;
 use image::GenericImageView;
 use libflate::gzip;
 use md5::Digest;
@@ -272,4 +273,16 @@ mod tests {
 
         assert_eq!(md5_str, "098f6bcd4621d373cade4e832627b4f6".to_string());
     }
+}
+
+/// Copy the bundle's resource files into an appropriate directory under the
+/// `data_dir`.
+pub fn transfer_resource_files(settings: &Settings, data_dir: &Path) -> crate::Result<()> {
+    let resource_dir = data_dir.join("usr/lib").join(settings.binary_name());
+
+    for (src, dest) in settings.resources_paths(resource_dir.as_path()) {
+        common::copy_file(&src, &dest)
+            .with_context(|| format!("Failed to copy resource file {src:?}"))?;
+    }
+    Ok(())
 }

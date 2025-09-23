@@ -41,6 +41,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     eprintln!("{} -> {}", wixproj_path.display(), base_dir.display());
     let cmd = std::process::Command::new("dotnet")
         .args(["build", wixproj_path.to_str().unwrap(), "-c", configuration])
+        .env("DOTNET_CLI_UI_LANGUAGE", "en")
         .current_dir(&settings.target.get_project_dir())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -56,13 +57,14 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     let bundle_name = settings.bundle_name();
 
     let output_name = sanitize_identifier(bundle_name.as_str(), '-', true);
+    let target_output_path = package_dir.join(format!("{output_name}.msi"));
     let msi_path = base_dir
         .join("bin")
         .join(configuration)
         .join(format!("{output_name}.msi"));
-    std::fs::copy(&msi_path, package_dir.join(format!("{output_name}.msi")))?;
+    std::fs::copy(&msi_path, &target_output_path)?;
     std::fs::remove_file(msi_path)?;
-    Ok(vec![package_dir.join(format!("{output_name}.msi"))])
+    Ok(vec![target_output_path])
 }
 
 fn generate_wixproj_file(settings: &Settings) -> String {
@@ -171,11 +173,9 @@ fn generate_wxs_file(wxs_path: &Path, settings: &Settings) -> crate::Result<()> 
     // Build directory structure from resource files
     let mut root_directories = Vec::new();
 
-    for relative_path in settings.resource_files().flatten() {
-        let full_path = package_dir.join(&relative_path);
-
+    for (src, full_path) in settings.resources_paths(package_dir) {
         // Generate component ID based on full relative path with proper capitalization
-        let path_str = relative_path.to_str().unwrap_or("");
+        let path_str = src.to_str().unwrap_or("");
         let comp_id = generate_component_id_from_path(path_str) + "_Component";
 
         let comp = Component {
@@ -190,7 +190,7 @@ fn generate_wxs_file(wxs_path: &Path, settings: &Settings) -> crate::Result<()> 
         component_refs.push(ComponentRef { id: comp_id });
 
         // Build directory structure
-        build_directory_structure(&mut root_directories, &relative_path, comp);
+        build_directory_structure(&mut root_directories, &src, comp);
     }
 
     let package_id = {

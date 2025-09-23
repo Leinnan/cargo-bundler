@@ -1,13 +1,14 @@
 mod bundle;
 
 use crate::bundle::target_info::BundleTargetInfo;
-use crate::bundle::{BuildArtifact, PackageType, Settings, bundle_project};
+use crate::bundle::{BuildArtifact, PackageType, Settings};
 use anyhow::Result;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process;
+use target_build_utils::TargetInfo;
 
 #[macro_export]
 macro_rules! version_0 {
@@ -78,6 +79,14 @@ pub struct Cli {
     pub dir: PathBuf,
 }
 
+impl Cli {
+    pub fn get_target(&self) -> Option<(String, Option<TargetInfo>)> {
+        self.target
+            .as_ref()
+            .map(|triple| (triple.to_string(), TargetInfo::from_str(triple).ok()))
+    }
+}
+
 /// Runs `cargo build` to make sure the binary file is up-to-date.
 fn build_project_if_unbuilt(settings: &Settings) -> crate::Result<()> {
     if std::env::var("CARGO_BUNDLE_SKIP_BUILD").is_ok() {
@@ -135,12 +144,30 @@ fn run() -> crate::Result<()> {
     }
     let mut cli = <Cli as clap::Parser>::parse_from(args); // <Cli as clap::Parser>::parse();
     cli.dir = env::current_dir()?;
-    let target_build_info: BundleTargetInfo = (&cli).try_into().expect("msg");
-    {
-        let settings = Settings::new(&target_build_info, &cli)?;
-        build_project_if_unbuilt(&settings)?;
-        let output_paths = bundle_project(settings, target_build_info.package_types)?;
-        bundle::print_finished(&output_paths)?;
+
+    let package_types = match cli.format {
+        Some(s) => vec![s],
+        None => match cli
+            .get_target()
+            .as_ref()
+            .map(|(_, t)| t.as_ref().map_or(std::env::consts::OS, |t| t.target_os()))
+            .unwrap_or(std::env::consts::OS)
+        {
+            "macos" => vec![PackageType::OsxBundle],
+            "ios" => vec![PackageType::IosBundle],
+            "linux" => vec![PackageType::Deb, PackageType::AppImage], // TODO: Do Rpm too, once it's implemented.
+            "windows" => vec![PackageType::WindowsMsi],
+            _os => vec![],
+        },
+    };
+    for package_type in package_types {
+        let target_build_info: BundleTargetInfo = (&cli, package_type).try_into().expect("msg");
+        {
+            let settings = Settings::new(&target_build_info, &cli)?;
+            build_project_if_unbuilt(&settings)?;
+            let output_paths = package_type.bundle_project(&settings)?;
+            bundle::print_finished(&output_paths)?;
+        }
     }
     Ok(())
 }

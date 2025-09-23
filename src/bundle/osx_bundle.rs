@@ -60,11 +60,9 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     copy_plugins_to_bundle(&bundle_directory, settings)
         .with_context(|| "Failed to bundle plugins")?;
 
-    for src in settings.resource_files() {
-        let src = src?;
-        let dest = resources_dir.join(common::resource_relpath(&src));
-        common::copy_file(&src, &dest)
-            .with_context(|| format!("Failed to copy resource file {src:?}"))?;
+    for (src, dst) in settings.resources_paths(resources_dir.as_path()) {
+        common::copy_file(&src, &dst)
+            .with_context(|| format!("Failed to copy resource file {src:?} to {dst:?}"))?;
     }
 
     copy_binary_to_bundle(&bundle_directory, settings).with_context(|| {
@@ -465,29 +463,49 @@ fn create_icns_file(
             }
             None => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "No matching IconType",
+                format!(
+                    "No matching IconType for size {}x{} at density {}",
+                    icon.width(),
+                    icon.height(),
+                    density
+                ),
             )),
         }
     }
-
-    let mut images_to_resize: Vec<(image::DynamicImage, u32, u32)> = vec![];
-    for icon_path in settings.icon_files() {
-        let icon_path = icon_path?;
+    if settings.icon_files().count() == 1 {
+        let icon_path = settings.icon_files().next().unwrap()?;
         let icon = image::open(&icon_path)?;
-        let density = if common::is_retina(&icon_path) { 2 } else { 1 };
-        let (w, h) = icon.dimensions();
-        let orig_size = min(w, h);
-        let next_size_down = 2f32.powf((orig_size as f32).log2().floor()) as u32;
-        if orig_size > next_size_down {
-            images_to_resize.push((icon, next_size_down, density));
-        } else {
+        let orig_size = min(icon.width(), icon.height());
+        if orig_size >= 512 {
+            let new_icon = icon.resize_exact(512, 512, Lanczos3);
+            add_icon_to_family(new_icon, 1, &mut family)?;
+            for size in &[256, 128, 32, 16] {
+                let resized_icon_2x = icon.resize_exact(*size * 2, *size * 2, Lanczos3);
+                add_icon_to_family(resized_icon_2x, 2, &mut family)?;
+                let resized_icon = icon.resize_exact(*size, *size, Lanczos3);
+                add_icon_to_family(resized_icon, 1, &mut family)?;
+            }
+        }
+    } else {
+        let mut images_to_resize: Vec<(image::DynamicImage, u32, u32)> = vec![];
+        for icon_path in settings.icon_files() {
+            let icon_path = icon_path?;
+            let icon = image::open(&icon_path)?;
+            let density = if common::is_retina(&icon_path) { 2 } else { 1 };
+            let (w, h) = icon.dimensions();
+            let orig_size = min(w, h);
+            let next_size_down = 2f32.powf((orig_size as f32).log2().floor()) as u32;
+            if orig_size > next_size_down {
+                images_to_resize.push((icon, next_size_down, density));
+            } else {
+                add_icon_to_family(icon, density, &mut family)?;
+            }
+        }
+
+        for (icon, next_size_down, density) in images_to_resize {
+            let icon = icon.resize_exact(next_size_down, next_size_down, Lanczos3);
             add_icon_to_family(icon, density, &mut family)?;
         }
-    }
-
-    for (icon, next_size_down, density) in images_to_resize {
-        let icon = icon.resize_exact(next_size_down, next_size_down, Lanczos3);
-        add_icon_to_family(icon, density, &mut family)?;
     }
 
     if !family.is_empty() {

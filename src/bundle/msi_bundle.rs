@@ -253,11 +253,10 @@ fn collect_resource_info(settings: &Settings) -> crate::Result<Vec<ResourceInfo>
         component_key: String::new(),
     });
     let root_rsrc_dir = PathBuf::from("Resources");
-    for source_path in settings.resource_files() {
-        let source_path = source_path?;
+
+    for (source_path, dest_path) in settings.resources_paths(root_rsrc_dir.as_path()) {
         let metadata = source_path.metadata()?;
         let size = metadata.len();
-        let dest_path = root_rsrc_dir.join(common::resource_relpath(&source_path));
         let filename = dest_path.file_name().unwrap().to_string_lossy().to_string();
         let info = ResourceInfo {
             source_path,
