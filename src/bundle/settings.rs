@@ -114,7 +114,7 @@ pub struct Settings {
     all_features: bool,
     no_default_features: bool,
     bundle_settings: BundleSettings,
-    bundle_name: String,
+    binary_name: String,
 }
 
 impl Settings {
@@ -134,7 +134,8 @@ impl Settings {
         let no_default_features = cli.no_default_features;
         let features = cli.features.as_ref().map(|features| features.into());
         let (bundle_settings, bundle_name) = bundle_info.get_bundle_settings(&build_artifact);
-        let bundle_name = if bundle_name.is_empty() {
+
+        let binary_name = if bundle_name.is_empty() {
             bundle_info.package.name.to_string()
         } else {
             bundle_name
@@ -146,7 +147,7 @@ impl Settings {
             all_features,
             no_default_features,
             bundle_settings,
-            bundle_name,
+            binary_name,
         })
     }
 
@@ -162,7 +163,7 @@ impl Settings {
 
     /// Returns the file name of the binary being bundled.
     pub fn binary_name(&self) -> String {
-        self.bundle_name.clone()
+        self.binary_name.clone()
     }
 
     /// Returns the path to the binary being bundled.
@@ -212,7 +213,11 @@ impl Settings {
     }
 
     pub fn bundle_name(&self) -> String {
-        self.bundle_name.clone()
+        if self.bundle_settings.name.is_empty() {
+            self.binary_name()
+        } else {
+            self.bundle_settings.name.clone()
+        }
     }
 
     pub fn bundle_identifier(&self) -> Cow<'_, str> {

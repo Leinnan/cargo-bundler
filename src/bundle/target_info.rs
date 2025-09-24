@@ -151,10 +151,8 @@ fn bundle_settings_of_package(
     if let Some(bundle) = package.metadata.get("bundle") {
         let settings = serde_json::from_value::<BundleSettings>(bundle.clone())?;
         if let Some(extra) = settings.targets.get(format.short_name()) {
-            eprintln!("Got settings, got bundle settings");
             return Ok(extra.clone().merge(settings));
         }
-        eprintln!("Got settings, no bundle settings");
         return Ok(settings);
     }
     print_warning(&format!(
