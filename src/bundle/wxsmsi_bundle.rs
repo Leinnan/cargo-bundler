@@ -20,10 +20,6 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     std::fs::create_dir_all(&base_dir)?;
 
     let package_dir = base_dir.join("bundle/wsxmsi");
-    if package_dir.exists() {
-        std::fs::remove_dir_all(&package_dir)
-            .with_context(|| format!("Failed to remove old bundle"))?;
-    }
     // Generate .wixproj file
     let wixproj_path = base_dir.join("installer.wixproj");
     std::fs::write(&wixproj_path, generate_wixproj_file(settings))?;
@@ -38,11 +34,10 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
         "release" => "Release",
         _ => "Debug",
     };
-    eprintln!("{} -> {}", wixproj_path.display(), base_dir.display());
     let cmd = std::process::Command::new("dotnet")
         .args(["build", wixproj_path.to_str().unwrap(), "-c", configuration])
         .env("DOTNET_CLI_UI_LANGUAGE", "en")
-        .current_dir(&settings.target.get_project_dir())
+        .current_dir(settings.target.get_project_dir())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
@@ -62,6 +57,11 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
         .join("bin")
         .join(configuration)
         .join(format!("{output_name}.msi"));
+    if package_dir.exists() {
+        std::fs::remove_dir_all(&package_dir)
+            .with_context(|| "Failed to remove old bundle".to_string())?;
+    }
+    std::fs::create_dir_all(&package_dir)?;
     std::fs::copy(&msi_path, &target_output_path)?;
     std::fs::remove_file(msi_path)?;
     Ok(vec![target_output_path])

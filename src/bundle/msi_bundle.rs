@@ -667,10 +667,7 @@ fn create_file_table(package: &mut Package, cabinets: &[CabinetInfo]) -> crate::
     )?;
     let mut rows = Vec::new();
     let mut sequence: i32 = 1;
-    // dbg!(&cabinets);
-    // eprintln!("SS: {}", cabinets.len());
     for cabinet in cabinets.iter() {
-        // eprintln!("Len: {} of {}", cabinet.resources.len(), &cabinet.name);
         for resource in cabinet.resources.iter() {
             let file_id = make_identifier(&cabinet.name, &resource.filename);
             rows.push(vec![

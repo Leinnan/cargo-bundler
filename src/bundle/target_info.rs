@@ -52,7 +52,7 @@ impl BundleTargetInfo {
     }
 
     pub fn get_project_dir(&self) -> &Path {
-        &self.project_out_directory.as_path()
+        self.project_out_directory.as_path()
     }
 
     pub fn get_bundle_settings(&self, build_artifact: &BuildArtifact) -> (BundleSettings, String) {

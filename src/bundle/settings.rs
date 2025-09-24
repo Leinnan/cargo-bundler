@@ -22,13 +22,13 @@ pub enum PackageType {
 impl PackageType {
     pub fn bundle_project(&self, settings: &Settings) -> crate::Result<Vec<PathBuf>> {
         match self {
-            PackageType::OsxBundle => super::osx_bundle::bundle_project(&settings),
-            PackageType::IosBundle => super::ios_bundle::bundle_project(&settings),
-            PackageType::WindowsMsi => super::msi_bundle::bundle_project(&settings),
-            PackageType::WxsMsi => super::wxsmsi_bundle::bundle_project(&settings),
-            PackageType::Deb => super::linux::deb_bundle::bundle_project(&settings),
-            PackageType::Rpm => super::linux::rpm_bundle::bundle_project(&settings),
-            PackageType::AppImage => super::linux::appimage_bundle::bundle_project(&settings),
+            PackageType::OsxBundle => super::osx_bundle::bundle_project(settings),
+            PackageType::IosBundle => super::ios_bundle::bundle_project(settings),
+            PackageType::WindowsMsi => super::msi_bundle::bundle_project(settings),
+            PackageType::WxsMsi => super::wxsmsi_bundle::bundle_project(settings),
+            PackageType::Deb => super::linux::deb_bundle::bundle_project(settings),
+            PackageType::Rpm => super::linux::rpm_bundle::bundle_project(settings),
+            PackageType::AppImage => super::linux::appimage_bundle::bundle_project(settings),
         }
     }
 }
@@ -252,22 +252,20 @@ impl Settings {
                 base_pattern
             };
 
-            for source_path in ResourcePaths::new(&[base_src.clone()], true) {
-                if let Ok(src) = source_path {
-                    // Calculate the relative path from the base directory to preserve subdirectory structure
-                    let relative_path = if let Ok(rel) = src.strip_prefix(base_dir) {
-                        rel
-                    } else {
-                        // Fallback to just the filename if strip_prefix fails
-                        Path::new(src.file_name().unwrap_or_default())
-                    };
-                    let destination = if dst.is_empty() {
-                        output_base.join(common::resource_relpath(&src))
-                    } else {
-                        output_base.join(dst).join(relative_path)
-                    };
-                    output.push((src, destination));
-                }
+            for src in ResourcePaths::new(std::slice::from_ref(base_src), true).flatten() {
+                // Calculate the relative path from the base directory to preserve subdirectory structure
+                let relative_path = if let Ok(rel) = src.strip_prefix(base_dir) {
+                    rel
+                } else {
+                    // Fallback to just the filename if strip_prefix fails
+                    Path::new(src.file_name().unwrap_or_default())
+                };
+                let destination = if dst.is_empty() {
+                    output_base.join(common::resource_relpath(&src))
+                } else {
+                    output_base.join(dst).join(relative_path)
+                };
+                output.push((src, destination));
             }
         }
 
