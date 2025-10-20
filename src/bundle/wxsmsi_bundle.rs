@@ -20,6 +20,10 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
     std::fs::create_dir_all(&base_dir)?;
 
     let package_dir = base_dir.join("bundle/wsxmsi");
+    if package_dir.exists() {
+        std::fs::remove_dir_all(&package_dir)
+            .with_context(|| "Failed to remove old bundle".to_string())?;
+    }
     // Generate .wixproj file
     let wixproj_path = base_dir.join("installer.wixproj");
     std::fs::write(&wixproj_path, generate_wixproj_file(settings))?;
